@@ -1,9 +1,9 @@
 """PostgreSQL database layer for the game bot."""
-import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import psycopg
+from psycopg_pool import AsyncConnectionPool
 
 from config import DATABASE_URL
 
@@ -142,14 +142,36 @@ def row_factory(cursor):
 
 
 class Database:
-    def __init__(self, url: str):
+    """
+    PostgreSQL access via a real connection pool.
+
+    Previous implementation opened a brand new TCP/TLS connection for every
+    single query AND serialized every single one of them behind one global
+    asyncio.Lock — meaning the entire bot could only ever process one DB
+    operation at a time, for all users combined. That is what caused the
+    lag/freezes under any real load. A pool keeps a handful of already-open
+    connections ready and lets independent requests run concurrently.
+    """
+
+    def __init__(self, url: str, min_size: int = 2, max_size: int = 10):
         if not url:
             raise RuntimeError("DATABASE_URL is not set")
         self.url = url
-        self._lock = asyncio.Lock()
+        self.min_size = min_size
+        self.max_size = max_size
+        self.pool: AsyncConnectionPool | None = None
 
     async def init(self) -> None:
-        async with await psycopg.AsyncConnection.connect(self.url, row_factory=row_factory) as conn:
+        self.pool = AsyncConnectionPool(
+            self.url,
+            min_size=self.min_size,
+            max_size=self.max_size,
+            kwargs={"row_factory": row_factory},
+            open=False,
+        )
+        await self.pool.open(wait=True)
+
+        async with self.pool.connection() as conn:
             await conn.execute(SCHEMA)
             await self._seed_quests(conn)
 
@@ -206,18 +228,23 @@ class Database:
 
     @asynccontextmanager
     async def connect(self):
-        # The lock prevents multiple concurrent operations from sharing one connection.
-        # Each context is a real PostgreSQL transaction: handlers explicitly commit or
-        # exceptions roll it back when the context closes.
-        async with self._lock:
-            conn = await psycopg.AsyncConnection.connect(self.url, row_factory=row_factory)
+        """
+        Drop-in replacement for the old context manager: handler code
+        elsewhere (`async with db.connect() as conn: ...`) does not need
+        to change at all. Internally this now borrows a connection from
+        the pool instead of opening a new one and taking a global lock,
+        so independent requests from different users run in parallel.
+        """
+        async with self.pool.connection() as conn:
             try:
                 yield conn
             except Exception:
                 await conn.rollback()
                 raise
-            finally:
-                await conn.close()
+
+    async def close(self) -> None:
+        if self.pool is not None:
+            await self.pool.close()
 
 
 db = Database(DATABASE_URL)
