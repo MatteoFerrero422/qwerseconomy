@@ -166,7 +166,30 @@ class Database:
             self.url,
             min_size=self.min_size,
             max_size=self.max_size,
-            kwargs={"row_factory": row_factory},
+            kwargs={
+                "row_factory": row_factory,
+                # TCP keepalives: detect a dead socket quickly instead of
+                # silently sending queries into a connection the network/DB
+                # provider already dropped while it sat idle.
+                "keepalives": 1,
+                "keepalives_idle": 30,
+                "keepalives_interval": 10,
+                "keepalives_count": 3,
+            },
+            # Ping every connection with a cheap query before handing it to
+            # a request. Managed Postgres (Render/Supabase/Neon etc.) closes
+            # idle connections server-side; without this check the pool would
+            # keep handing out a connection object that looks fine locally
+            # but is already dead on the server, causing exactly the
+            # "SSL connection has been closed unexpectedly" / "the connection
+            # is lost" errors seen in the logs. If the check fails, the pool
+            # discards that connection and opens a fresh one automatically.
+            check=AsyncConnectionPool.check_connection,
+            # Proactively recycle connections before they sit idle long
+            # enough for the DB provider to kill them itself, and before
+            # any single connection gets old enough to be flaky.
+            max_idle=120,
+            max_lifetime=1800,
             open=False,
         )
         await self.pool.open(wait=True)
@@ -234,13 +257,18 @@ class Database:
         to change at all. Internally this now borrows a connection from
         the pool instead of opening a new one and taking a global lock,
         so independent requests from different users run in parallel.
+
+        No manual rollback here on purpose: `pool.connection()` already
+        commits on a clean exit and rolls back on an exception by itself.
+        Adding a second rollback on top of that was the bug — when the
+        connection was already dead (server-side idle timeout, dropped
+        SSL socket), that extra rollback call raised its own
+        OperationalError and masked/duplicated what the pool was already
+        handling correctly, which is what produced the crashes in the
+        logs. Let the pool manage the connection's lifecycle entirely.
         """
         async with self.pool.connection() as conn:
-            try:
-                yield conn
-            except Exception:
-                await conn.rollback()
-                raise
+            yield conn
 
     async def close(self) -> None:
         if self.pool is not None:
