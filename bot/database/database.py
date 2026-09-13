@@ -226,10 +226,10 @@ class Database:
 
     async def _seed_quests(self, conn):
         quests = [
-            (1, 'first_friend', '👥 Первый друг', 'Пригласите в игру 1 друга.', 0, 0, 0),
+            (1, 'first_friend', '👥 Первый друг', 'Пригласите в игру 1 друга.', 5000, 0, 0),
             (2, 'first_stall', '🏪 Первый ларёк', 'Купите ларёк в магазине.', 2500, 0.25, 0),
             (3, 'first_1000_stall', '🏪 Первые 1 000$', 'Заработайте первые 1 000$ с помощью ларька.', 5000, 0.25, 0),
-            (4, 'resource_stock', '📦 Запас ресурсов', 'Купите 5 000 камня, 5 000 руды и 2 500 дерева.', 0, 0.25, 1),
+            (4, 'channel_subscription', '📢 Подписка на канал', 'Подпишитесь на наш телеграм-канал: https://t.me/Pepexspace', 5000, 0, 0),
             (5, 'first_factory', '🏭 Первый завод', 'Купите мини-завод в магазине.', 5000, 1, 0),
         ]
         async with conn.cursor() as cur:
@@ -241,12 +241,16 @@ class Database:
                 quests,
             )
         await conn.execute(
-            "UPDATE quests SET code=%s,title=%s,description=%s,reward_money=0,reward_stars=0 WHERE id=1",
+            "UPDATE quests SET code=%s,title=%s,description=%s,reward_money=5000,reward_stars=0,reward_money_case=0 WHERE id=1",
             ('first_friend', '👥 Первый друг', 'Пригласите в игру 1 друга.'),
         )
         await conn.execute(
             "UPDATE quests SET code=%s,title=%s,description=%s WHERE id=3",
             ('first_1000_stall', '🏪 Первые 1 000$', 'Заработайте первые 1 000$ с помощью ларька.'),
+        )
+        await conn.execute(
+            "UPDATE quests SET code=%s,title=%s,description=%s,reward_money=5000,reward_stars=0,reward_money_case=0 WHERE id=4",
+            ('channel_subscription', '📢 Подписка на канал', 'Подпишитесь на наш телеграм-канал: https://t.me/Pepexspace'),
         )
 
     @asynccontextmanager
