@@ -52,7 +52,6 @@ async def process_resource_quantity(message,state):
             await queries.update_user_money(conn,user.id,-total); await queries.update_resource(conn,user.id,t,qty)
             await log_transaction(conn,user.id,TX_PURCHASE,CURRENCY_MONEY,-total,f'Покупка {qty} x {info["name"]}')
             r=await queries.get_resources(conn,user.id)
-            if r.stone>=5000 and r.ore>=5000 and r.wood>=2500: await quest_progress(conn,user.id,4,1)
             await conn.commit()
         except InsufficientFundsError: await conn.rollback(); return await message.answer('❌ Недостаточно денег!')
     await state.clear(); await message.answer(f'✅ Куплено: <code>{qty}</code> {info["emoji"]} {info["name"]}\nПотрачено: <code>{total}$</code>',parse_mode='HTML')
