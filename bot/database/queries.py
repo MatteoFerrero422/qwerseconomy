@@ -388,13 +388,13 @@ async def get_referral_stats(conn, user_id):
     registered = (await cur.fetchone())[0]
     cur = await conn.execute(
         """SELECT
-            COALESCE(SUM(CASE WHEN currency='money' AND type='referral' THEN amount ELSE 0 END),0),
-            COALESCE(SUM(CASE WHEN currency='stars' AND type='referral' THEN amount ELSE 0 END),0)
+            COALESCE(SUM(CASE WHEN currency='money' AND type='referral' THEN amount ELSE 0 END),0) AS money_sum,
+            COALESCE(SUM(CASE WHEN currency='stars' AND type='referral' THEN amount ELSE 0 END),0) AS stars_sum
         FROM transactions WHERE user_id=%s""",
         (user_id,),
     )
     row = await cur.fetchone()
-    return {'invited': registered, 'registered': registered, 'money': row[0], 'stars': row[1]}
+    return {'invited': registered, 'registered': registered, 'money': row['money_sum'], 'stars': row['stars_sum']}
 
 
 async def get_top_users(conn, currency, limit=10, user_id=None):
